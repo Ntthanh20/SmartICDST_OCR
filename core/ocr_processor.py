@@ -14,10 +14,39 @@ class OCRProcessor:
     def __init__(self):
         """
         Khởi tạo công cụ OCR.
-        Sử dụng cấu hình chạy trên CPU, ngôn ngữ tiếng Việt (lang='vi') và tắt ghi log.
-        Instance của PaddleOCR được lưu giữ để sử dụng lại cho tất cả các ảnh tiếp theo.
+        Tự động kiểm tra xem có thư mục chứa các file model offline (weights) ở bên cạnh 
+        thư mục chạy / file thực thi .exe hay không. Nếu có thì nạp trực tiếp, ngược lại 
+        sẽ nạp từ thư mục mặc định người dùng (~/.paddleocr/).
         """
-        self.ocr = PaddleOCR(lang='vi', use_gpu=False, show_log=False)
+        import sys
+        
+        # Xác định thư mục cơ sở
+        if getattr(sys, 'frozen', False):
+            # Nếu chạy từ file .exe được đóng gói
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            # Nếu chạy script Python bình thường
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        model_base = os.path.join(base_dir, "paddleocr_models")
+        det_dir = os.path.join(model_base, "det", "en", "en_PP-OCRv3_det_infer")
+        rec_dir = os.path.join(model_base, "rec", "latin", "latin_PP-OCRv3_rec_infer")
+        cls_dir = os.path.join(model_base, "cls", "ch_ppocr_mobile_v2.0_cls_infer")
+
+        # Nếu tồn tại các thư mục mô hình offline
+        if os.path.exists(det_dir) and os.path.exists(rec_dir):
+            print(f"[OCR] Nạp mô hình offline từ: {model_base}")
+            self.ocr = PaddleOCR(
+                lang='vi',
+                use_gpu=False,
+                show_log=False,
+                det_model_dir=det_dir,
+                rec_model_dir=rec_dir,
+                cls_model_dir=cls_dir
+            )
+        else:
+            print("[OCR] Khởi tạo mô hình mặc định từ thư mục người dùng (~/.paddleocr/)")
+            self.ocr = PaddleOCR(lang='vi', use_gpu=False, show_log=False)
 
     def extract_text_from_image(self, image_path: str) -> str:
         """

@@ -14,7 +14,11 @@ FEE_KEYWORDS = {
         "nâng container",
         "nang vo",
         "nang cont",
-        "nang container"
+        "nang container",
+        "nãng",
+        "năng",
+        "nâmg",
+        "nâng"
     ],
     "Hạ": [
         "hạ",
@@ -28,7 +32,9 @@ FEE_KEYWORDS = {
         "ha bai",
         "ha cont",
         "ha container",
-        "ha vo"
+        "ha vo",
+        "hã",
+        "hà"
     ],
     "Vệ sinh": [
         "vệ sinh",
@@ -42,7 +48,8 @@ FEE_KEYWORDS = {
         "ve sinh cont",
         "ve sinh vo",
         "ve sinh container",
-        "phi ve sinh"
+        "phi ve sinh",
+        "vê sinh"
     ],
     "Lưu cont": [
         "lưu cont",

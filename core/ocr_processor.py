@@ -103,12 +103,14 @@ class OCRProcessor:
     def extract_text_from_image_matrix(self, img) -> str:
         """
         Nhận diện chữ từ ma trận ảnh đã được xử lý bằng PaddleOCR.
+        Sử dụng thuật toán Horizontal Line Reconstruction (nhóm các block cùng dòng ngang và sắp xếp từ trái qua phải)
+        để bảo toàn cấu trúc dòng/cột của hóa đơn, giúp việc trích xuất phí và số tiền chính xác hơn nhiều.
         
         Args:
             img: Ma trận ảnh (numpy array) đã được xoay thẳng.
             
         Returns:
-            Văn bản thô ghép nối từ các dòng chữ.
+            Văn bản thô phân tách bằng dấu xuống dòng.
         """
         try:
             # Chạy nhận diện chữ (chế độ cls=False vì ảnh đã được xoay thẳng vật lý ở bước trước)
@@ -116,15 +118,68 @@ class OCRProcessor:
             if not result:
                 return ""
             
-            lines = []
+            all_blocks = []
             for line in result:
                 if line is None:
                     continue
                 for word_info in line:
-                    text = word_info[1][0]
-                    lines.append(text)
+                    if not word_info or len(word_info) < 2:
+                        continue
+                    bbox = word_info[0]
+                    text_info = word_info[1]
+                    if not text_info or not bbox:
+                        continue
+                    text = text_info[0]
+                    
+                    # Tính Y center và X min từ bbox
+                    y_coords = [p[1] for p in bbox]
+                    x_coords = [p[0] for p in bbox]
+                    
+                    y_center = sum(y_coords) / len(y_coords)
+                    x_min = min(x_coords)
+                    height = max(y_coords) - min(y_coords)
+                    
+                    all_blocks.append({
+                        "text": text,
+                        "y_center": y_center,
+                        "x_min": x_min,
+                        "height": height
+                    })
             
-            return "\n".join(lines)
+            if not all_blocks:
+                return ""
+                
+            # Sắp xếp theo chiều dọc (Y center) từ trên xuống dưới
+            all_blocks.sort(key=lambda b: b["y_center"])
+            
+            # Nhóm các block cùng dòng ngang
+            lines_grouped = []
+            for block in all_blocks:
+                placed = False
+                for g_line in lines_grouped:
+                    avg_y = sum(b["y_center"] for b in g_line) / len(g_line)
+                    avg_h = sum(b["height"] for b in g_line) / len(g_line)
+                    # Nếu khoảng cách Y center nhỏ hơn 60% chiều cao trung bình của dòng
+                    if abs(block["y_center"] - avg_y) < (avg_h * 0.6):
+                        g_line.append(block)
+                        placed = True
+                        break
+                if not placed:
+                    lines_grouped.append([block])
+            
+            # Sắp xếp các block trong từng dòng theo thứ tự từ trái qua phải (X tăng dần) và ghép chuỗi
+            reconstructed_lines = []
+            for g_line in lines_grouped:
+                g_line.sort(key=lambda b: b["x_min"])
+                line_text = " ".join(b["text"] for b in g_line)
+                avg_y = sum(b["y_center"] for b in g_line) / len(g_line)
+                reconstructed_lines.append((avg_y, line_text))
+                
+            # Sắp xếp các dòng từ trên xuống dưới
+            reconstructed_lines.sort(key=lambda x: x[0])
+            
+            return "\n".join(line[1] for line in reconstructed_lines)
+            
         except Exception as e:
             print(f"[ERROR] Lỗi khi nhận diện OCR ma trận ảnh: {str(e)}")
             return ""

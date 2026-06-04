@@ -51,8 +51,8 @@ class FeeExtractor:
         # 2. Loại bỏ các đơn vị tiền tệ phổ biến ở cuối (VNĐ, VND, đ, usd, USD)
         cleaned = re.sub(r'(?i)\b(?:vnđ|vnd|đ|usd)\b', '', cleaned)
         
-        # 3. Loại bỏ các ký tự dấu phân cách hoặc ký hiệu đặc biệt ở đầu/cuối dòng
-        cleaned = re.sub(r'^[:\-\s\+,\.\*]+|[:\-\s\+,\.\*]+$', '', cleaned)
+        # 3. Loại bỏ các ký tự dấu phân cách hoặc ký hiệu đặc biệt ở đầu/cuối dòng (kèm ký tự phân cách bảng | / \ [ ])
+        cleaned = re.sub(r'^[:\-\s\+,\.\*\|\\\/\[\]]+|[:\-\s\+,\.\*\|\\\/\[\]]+$', '', cleaned)
         
         # 4. Loại bỏ các tiền tố giới thiệu phổ biến (chấp nhận cả sai sót OCR như Phudng än, Phuong an...)
         # Ví dụ: "Phương án:", "Phudng än:", "Phuong an:"
@@ -90,7 +90,7 @@ class FeeExtractor:
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         
         # 1. Các trường hợp Nâng Rỗng
-        if normalized in ["nang rng", "nang rong", "nang roong", "nang rngo", "nang rngz"]:
+        if normalized in ["nang rng", "nang rong", "nang roong", "nang rngo", "nang rngz", "ng rong", "ng rng"]:
             return "Nâng rỗng"
         # 2. Các trường hợp Hạ Rỗng
         if normalized in ["ha rng", "ha rong", "ha roong"]:
@@ -106,7 +106,7 @@ class FeeExtractor:
             return "Vệ sinh container"
             
         # Kiểm tra cụm từ con bên trong
-        if "nang rng" in normalized or "nang rong" in normalized:
+        if "nang rng" in normalized or "nang rong" in normalized or "ng rong" in normalized or "ng rng" in normalized:
             return "Nâng rỗng"
         if "ha rng" in normalized or "ha rong" in normalized:
             return "Hạ rỗng"

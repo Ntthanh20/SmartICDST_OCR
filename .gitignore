@@ -10,6 +10,7 @@ venv/
 build/
 dist/
 *.log
+scratch/
 
 # Chỉ đồng bộ thư mục DULIEUTEST/Baocao, bỏ qua tất cả các dữ liệu test khác
 DULIEUTEST/*

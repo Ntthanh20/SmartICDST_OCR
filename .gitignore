@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.vscode/
+.idea/
+venv/
+.venv/
+build/
+dist/
+*.log
+
+# Chỉ đồng bộ thư mục DULIEUTEST/Baocao, bỏ qua tất cả các dữ liệu test khác
+DULIEUTEST/*
+!DULIEUTEST/Baocao/
+

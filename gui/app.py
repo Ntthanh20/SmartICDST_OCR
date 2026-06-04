@@ -122,6 +122,7 @@ class MainApp(customtkinter.CTk):
         self.source_dir = tk.StringVar(value="")
         self.scanned_results = []  # Danh sách lưu kết quả quét thực tế
         self.ocr_processor = None  # Đối tượng xử lý OCR dùng chung để tối ưu tốc độ
+        self.stop_requested = False  # Cờ yêu cầu dừng phân tích
 
         # 2. Tạo bố cục lưới tổng thể (Hỗ trợ Progress Bar ở hàng 2)
         self.grid_rowconfigure(0, weight=0)  # Toolbar trên cùng
@@ -162,15 +163,15 @@ class MainApp(customtkinter.CTk):
         btn_browse.grid(row=0, column=2, padx=(0, 15), pady=15, sticky="e")
 
     def _init_main_split_view(self):
-        """Khởi tạo khung Split-View ở giữa chia tỉ lệ 60% trái (Treeview) và 40% phải (Xem ảnh)."""
+        """Khởi tạo khung Split-View ở giữa chia tỉ lệ 50% trái (Treeview) và 50% phải (Xem ảnh)."""
         split_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         split_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
-        split_frame.grid_columnconfigure(0, weight=6)
-        split_frame.grid_columnconfigure(1, weight=4)
+        split_frame.grid_columnconfigure(0, weight=1, uniform="group1")
+        split_frame.grid_columnconfigure(1, weight=1, uniform="group1")
         split_frame.grid_rowconfigure(0, weight=1)
 
-        # PANEL TRÁI (60%): ttk.Treeview hiển thị dạng Monospace Consolas
+        # PANEL TRÁI (50%): ttk.Treeview hiển thị dạng Monospace Consolas
         left_panel = customtkinter.CTkFrame(split_frame)
         left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         left_panel.grid_rowconfigure(0, weight=1)
@@ -191,7 +192,7 @@ class MainApp(customtkinter.CTk):
                         rowheight=28,
                         fieldbackground=bg_color,
                         bordercolor="#3a3a3a",
-                        borderwidth=0)
+                        borderwidth=1)
         
         # Định nghĩa kiểu chữ Consolas cho dữ liệu bảng để căn dòng đẹp mắt
         style.configure("Treeview.Cell", font=("Consolas", 11))
@@ -215,8 +216,8 @@ class MainApp(customtkinter.CTk):
 
         self.tree.column("document_key", width=140, anchor="center")
         self.tree.column("container_id", width=140, anchor="center")
-        self.tree.column("fee_type", width=200, anchor="w")
-        self.tree.column("amount", width=120, anchor="e")
+        self.tree.column("fee_type", width=200, anchor="center")
+        self.tree.column("amount", width=120, anchor="center")
 
         # Cấu hình các tag màu xen kẽ các dòng (Zebra Striping) để dễ quan sát
         self.tree.tag_configure("evenrow", background="#2d3135" if is_dark else "#f9f9f9")
@@ -229,11 +230,11 @@ class MainApp(customtkinter.CTk):
         self.tree.bind("<<TreeviewSelect>>", self._on_table_row_select)
         self.tree.bind("<Double-1>", self._on_table_row_double_click)
 
-        # PANEL PHẢI (40%): Khung xem trước hình ảnh/PDF hỗ trợ zoom cuộn
+        # PANEL PHẢI (50%): Khung xem trước hình ảnh/PDF hỗ trợ zoom cuộn
         self.right_panel = customtkinter.CTkFrame(split_frame)
         self.right_panel.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         self.right_panel.grid_rowconfigure(0, weight=0)  # Zoom toolbar
-        self.right_panel.grid_rowconfigure(1, weight=1)  # Scrollable preview
+        self.right_panel.grid_rowconfigure(1, weight=1)  # Canvas preview
         self.right_panel.grid_columnconfigure(0, weight=1)
 
         # Thanh công cụ Zoom
@@ -263,17 +264,23 @@ class MainApp(customtkinter.CTk):
         )
         self.lbl_zoom_val.grid(row=0, column=3, padx=10)
 
-        # Khung cuộn chứa nhãn ảnh xem trước
-        self.scroll_frame = customtkinter.CTkScrollableFrame(self.right_panel)
-        self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        # Khung chứa canvas và thanh cuộn ngang/dọc cho preview file
+        self.canvas_frame = customtkinter.CTkFrame(self.right_panel)
+        self.canvas_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.canvas_frame.grid_rowconfigure(0, weight=1)
+        self.canvas_frame.grid_columnconfigure(0, weight=1)
 
-        self.lbl_preview = customtkinter.CTkLabel(
-            self.scroll_frame, 
-            text="Chọn dòng trong bảng để xem ảnh/PDF",
-            font=("Segoe UI", 12, "italic"),
-            text_color="gray"
-        )
-        self.lbl_preview.pack(expand=True, fill="both", padx=10, pady=10)
+        # Sử dụng tk.Canvas kết hợp CTkScrollbar để có cả thanh cuộn dọc và cuộn ngang
+        self.canvas = tk.Canvas(self.canvas_frame, bg=bg_color, highlightthickness=0)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+
+        self.v_scrollbar = customtkinter.CTkScrollbar(self.canvas_frame, orientation="vertical", command=self.canvas.yview)
+        self.v_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.h_scrollbar = customtkinter.CTkScrollbar(self.canvas_frame, orientation="horizontal", command=self.canvas.xview)
+        self.h_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        self.canvas.configure(xscrollcommand=self.h_scrollbar.set, yscrollcommand=self.v_scrollbar.set)
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
 
     def _init_progress_bar(self):
         """Khởi tạo thanh tiến độ (Progress Bar) và nhãn hiển thị tiến trình (mặc định ẩn)."""
@@ -299,16 +306,28 @@ class MainApp(customtkinter.CTk):
         bottom_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
 
         bottom_frame.grid_columnconfigure(0, weight=1)
-        bottom_frame.grid_columnconfigure(4, weight=1)
+        bottom_frame.grid_columnconfigure(5, weight=1)
 
         self.btn_scan = customtkinter.CTkButton(
             bottom_frame,
-            text="🔍 Quét thư mục",
+            text="🔍 Phân tích",
             font=("Segoe UI", 13, "bold"),
             width=150,
             command=self._on_scan_directory
         )
-        self.btn_scan.grid(row=0, column=1, padx=15, pady=15)
+        self.btn_scan.grid(row=0, column=1, padx=10, pady=15)
+
+        self.btn_stop = customtkinter.CTkButton(
+            bottom_frame,
+            text="⏹️ Dừng phân tích",
+            font=("Segoe UI", 13, "bold"),
+            width=150,
+            fg_color="#c0392b",
+            hover_color="#e74c3c",
+            state="disabled",
+            command=self._on_stop_analysis
+        )
+        self.btn_stop.grid(row=0, column=2, padx=10, pady=15)
 
         self.btn_edit = customtkinter.CTkButton(
             bottom_frame,
@@ -319,7 +338,7 @@ class MainApp(customtkinter.CTk):
             hover_color="#e67e22",
             command=self._on_edit_click
         )
-        self.btn_edit.grid(row=0, column=2, padx=15, pady=15)
+        self.btn_edit.grid(row=0, column=3, padx=10, pady=15)
 
         self.btn_export = customtkinter.CTkButton(
             bottom_frame,
@@ -330,7 +349,7 @@ class MainApp(customtkinter.CTk):
             hover_color="#219653",
             command=self._on_export_excel
         )
-        self.btn_export.grid(row=0, column=3, padx=15, pady=15)
+        self.btn_export.grid(row=0, column=4, padx=10, pady=15)
 
     # ========================================================
     # XỬ LÝ SỰ KIỆN GIAO DIỆN (EVENT HANDLERS)
@@ -351,23 +370,48 @@ class MainApp(customtkinter.CTk):
             messagebox.showwarning("Cảnh báo", "Vui lòng chọn thư mục nguồn trước khi quét!")
             return
 
+        # Đặt lại cờ yêu cầu dừng
+        self.stop_requested = False
+
         # Hiển thị thanh tiến độ
         self.progress_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
         self.progress_bar.set(0)
-        self.lbl_progress.configure(text="Bắt đầu chuẩn bị quét...")
+        self.lbl_progress.configure(text="Bắt đầu chuẩn bị phân tích...")
 
         # Vô hiệu hóa các nút điều khiển để tránh click nhiều lần khi đang chạy
         self.btn_scan.configure(state="disabled")
+        self.btn_stop.configure(state="normal")
         self.btn_export.configure(state="disabled")
 
         # Xóa dữ liệu cũ trên bảng và trong bộ nhớ
         self.tree.delete(*self.tree.get_children())
         self.scanned_results = []
-        self.lbl_preview.configure(image=None, text="Chọn dòng trong bảng để xem ảnh/PDF")
+        self.ctk_preview_image = None
+        self.canvas.delete("all")
+        # Dự phòng kích thước nếu canvas chưa vẽ xong
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
+        if canvas_w < 50 or canvas_h < 50:
+            canvas_w, canvas_h = 420, 550
+        self.canvas.create_text(
+            canvas_w / 2, canvas_h / 2,
+            text="Chọn dòng trong bảng để xem ảnh/PDF",
+            font=("Segoe UI", 12, "italic"),
+            fill="gray",
+            tags="placeholder"
+        )
+        self.canvas.configure(scrollregion=(0, 0, canvas_w, canvas_h))
 
         # Bắt đầu đa luồng
         scan_thread = threading.Thread(target=self._scan_worker, args=(path,), daemon=True)
         scan_thread.start()
+
+    def _on_stop_analysis(self):
+        """Yêu cầu dừng phân tích hiện tại."""
+        self.stop_requested = True
+        self.btn_stop.configure(state="disabled")
+        self.lbl_progress.configure(text="Đang dừng tiến trình phân tích...")
+        print("[UI] Người dùng yêu cầu dừng phân tích.")
 
     def _scan_worker(self, path):
         """Hàm chạy nền trong thread riêng để quét thư mục."""
@@ -382,15 +426,19 @@ class MainApp(customtkinter.CTk):
         scanner = BatchScanner(ocr_processor=self.ocr_processor)
 
         def progress_update(current, total, file_name):
+            # Nếu người dùng yêu cầu dừng, ném ngoại lệ để hủy luồng
+            if self.stop_requested:
+                raise RuntimeError("USER_CANCELLED")
             # Sử dụng self.after để cập nhật giao diện Tkinter an toàn từ Thread nền
-            self.after(0, lambda: self._update_progress_ui(current, total, file_name))
+            self.after(0, lambda c=current, t=total, f=file_name: self._update_progress_ui(c, t, f))
 
         try:
             results = scanner.scan_directory(path, progress_callback=progress_update)
             # Hoàn tất quét, đẩy kết quả về luồng chính
-            self.after(0, lambda: self._on_scan_completed(results))
+            self.after(0, lambda r=results: self._on_scan_completed(r))
         except Exception as e:
-            self.after(0, lambda: self._on_scan_failed(str(e)))
+            err_msg = str(e)
+            self.after(0, lambda msg=err_msg: self._on_scan_failed(msg))
 
     def _update_progress_ui(self, current, total, file_name):
         """Cập nhật giao diện thanh tiến trình."""
@@ -402,15 +450,21 @@ class MainApp(customtkinter.CTk):
         """Xử lý giao diện khi hoàn tất quét thư mục thành công."""
         self.progress_frame.grid_remove()  # Ẩn thanh tiến trình
         self.btn_scan.configure(state="normal")
+        self.btn_stop.configure(state="disabled")
         self.btn_export.configure(state="normal")
 
         # Lưu trữ kết quả và hiển thị lên bảng kết quả
         self.scanned_results = results
         for idx, res in enumerate(self.scanned_results):
             # Định dạng hiển thị doc_key thân thiện
+            file_path = res.get("file_path", "")
+            ext = os.path.splitext(file_path)[1].lower()
             key_val = res.get("document_key", "")
             doc_key_display = ""
-            if key_val:
+            
+            if ext in (".jpg", ".jpeg", ".png"):
+                doc_key_display = "Ảnh"
+            elif key_val:
                 if key_val.startswith("LO_"):
                     doc_key_display = f"Lô: {key_val[3:]}"
                 elif key_val.startswith("HD_"):
@@ -420,13 +474,13 @@ class MainApp(customtkinter.CTk):
                 else:
                     doc_key_display = key_val
 
-            # Chèn dòng vào Treeview (đúng cột)
+            # Chèn dòng vào Treeview (đúng cột: Mã lô / Số HĐ -> Số Container -> Loại chi phí -> Số tiền)
             item_id = self.tree.insert("", "end", values=(
-                res["container_id"], 
                 doc_key_display,
+                res["container_id"], 
                 res["fee_type"], 
                 f"{res['amount']:,}"
-            ))
+            ), tags=("evenrow" if idx % 2 == 0 else "oddrow",))
             # Gắn ID hàng vào data để quản lý chỉnh sửa
             res["row_id"] = item_id
 
@@ -434,11 +488,17 @@ class MainApp(customtkinter.CTk):
         messagebox.showinfo("Hoàn tất", f"Đã quét xong thư mục đối soát!\nTổng số bản ghi trích xuất: {total_scanned} dòng.")
 
     def _on_scan_failed(self, error_msg):
-        """Xử lý giao diện khi xảy ra lỗi trong quá trình quét nền."""
+        """Xử lý giao diện khi xảy ra lỗi hoặc dừng trong quá trình quét nền."""
         self.progress_frame.grid_remove()
         self.btn_scan.configure(state="normal")
+        self.btn_stop.configure(state="disabled")
         self.btn_export.configure(state="normal")
-        messagebox.showerror("Lỗi hệ thống", f"Đã xảy ra lỗi khi quét thư mục:\n{error_msg}")
+        
+        if error_msg == "USER_CANCELLED":
+            messagebox.showinfo("Đã dừng", "Tiến trình phân tích đã được dừng theo yêu cầu.")
+            print("[UI] Đã dừng phân tích theo yêu cầu người dùng.")
+        else:
+            messagebox.showerror("Lỗi hệ thống", f"Đã xảy ra lỗi khi quét thư mục:\n{error_msg}")
 
     def _on_table_row_select(self, event):
         """Hiển thị xem trước hình ảnh/PDF trang đầu tiên khi click chọn dòng tương ứng."""
@@ -469,13 +529,37 @@ class MainApp(customtkinter.CTk):
 
     def _render_preview(self):
         """Hiển thị ảnh hoặc PDF đã xoay thẳng hướng, hỗ trợ thu phóng."""
+        # Lấy kích thước canvas
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
+        if canvas_w < 50 or canvas_h < 50:
+            canvas_w, canvas_h = 420, 550
+
         if not hasattr(self, "current_preview_file") or not self.current_preview_file:
-            self.lbl_preview.configure(image=None, text="Chọn dòng trong bảng để xem ảnh/PDF")
+            self.ctk_preview_image = None
+            self.canvas.delete("all")
+            self.canvas.create_text(
+                canvas_w / 2, canvas_h / 2,
+                text="Chọn dòng trong bảng để xem ảnh/PDF",
+                font=("Segoe UI", 12, "italic"),
+                fill="gray",
+                tags="placeholder"
+            )
+            self.canvas.configure(scrollregion=(0, 0, canvas_w, canvas_h))
             return
             
         file_path = self.current_preview_file
         if not os.path.exists(file_path):
-            self.lbl_preview.configure(image=None, text="File gốc đã bị xóa hoặc di chuyển!")
+            self.ctk_preview_image = None
+            self.canvas.delete("all")
+            self.canvas.create_text(
+                canvas_w / 2, canvas_h / 2,
+                text="File gốc đã bị xóa hoặc di chuyển!",
+                font=("Segoe UI", 12, "bold"),
+                fill="red",
+                tags="placeholder"
+            )
+            self.canvas.configure(scrollregion=(0, 0, canvas_w, canvas_h))
             return
             
         try:
@@ -487,16 +571,8 @@ class MainApp(customtkinter.CTk):
             # Lấy ảnh đã xoay thẳng hướng chuẩn (hỗ trợ cả ảnh và PDF)
             img = self.ocr_processor.get_corrected_image(file_path)
             
-            # Thay đổi kích thước giữ nguyên tỷ lệ ảnh vừa khớp với panel (khi zoom_factor = 1.0)
-            panel_w = self.scroll_frame.winfo_width()
-            panel_h = self.scroll_frame.winfo_height()
-            
-            # Dự phòng kích thước nếu cửa sổ chưa vẽ xong
-            if panel_w < 50 or panel_h < 50:
-                panel_w, panel_h = 420, 550
-                
             img_w, img_h = img.size
-            ratio = min(panel_w / img_w, panel_h / img_h)
+            ratio = min(canvas_w / img_w, canvas_h / img_h)
             
             zoom = getattr(self, "zoom_factor", 1.0)
             new_w = max(int(img_w * ratio * zoom) - 10, 10)
@@ -505,17 +581,36 @@ class MainApp(customtkinter.CTk):
             # Resize ảnh dùng Lanczos filter
             img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
             
-            # Chuyển đổi sang CTkImage để hiển thị
-            ctk_img = customtkinter.CTkImage(
-                light_image=img_resized, 
-                dark_image=img_resized, 
-                size=(new_w, new_h)
-            )
+            # Chuyển đổi sang ImageTk.PhotoImage để vẽ lên Canvas
+            from PIL import ImageTk
+            self.ctk_preview_image = ImageTk.PhotoImage(img_resized)
             
-            self.lbl_preview.configure(image=ctk_img, text="")
+            # Clear canvas and draw new image
+            self.canvas.delete("all")
+            
+            # Căn giữa ảnh trên canvas nếu ảnh nhỏ hơn vùng hiển thị
+            x_pos = max(0, (canvas_w - new_w) / 2)
+            y_pos = max(0, (canvas_h - new_h) / 2)
+            
+            self.canvas.create_image(x_pos, y_pos, anchor="nw", image=self.ctk_preview_image)
+            
+            # Cấu hình lại vùng cuộn để thanh cuộn hoạt động chính xác
+            scroll_w = max(canvas_w, new_w + x_pos)
+            scroll_h = max(canvas_h, new_h + y_pos)
+            self.canvas.configure(scrollregion=(0, 0, scroll_w, scroll_h))
+            
         except Exception as e:
             print(f"[ERROR] Lỗi khi tạo ảnh xem trước: {str(e)}")
-            self.lbl_preview.configure(image=None, text=f"Lỗi khi hiển thị file xem trước:\n{str(e)}")
+            self.ctk_preview_image = None
+            self.canvas.delete("all")
+            self.canvas.create_text(
+                canvas_w / 2, canvas_h / 2,
+                text=f"Lỗi khi hiển thị file xem trước:\n{str(e)}",
+                font=("Segoe UI", 11),
+                fill="red",
+                tags="placeholder"
+            )
+            self.canvas.configure(scrollregion=(0, 0, canvas_w, canvas_h))
 
     def _zoom_in(self):
         if not hasattr(self, "zoom_factor"):
@@ -535,6 +630,14 @@ class MainApp(customtkinter.CTk):
         self.zoom_factor = 1.0
         self.lbl_zoom_val.configure(text="100%")
         self._render_preview()
+
+    def _on_canvas_resize(self, event):
+        """Căn giữa lại nhãn placeholder khi canvas thay đổi kích thước."""
+        canvas_w = event.width
+        canvas_h = event.height
+        placeholders = self.canvas.find_withtag("placeholder")
+        for item in placeholders:
+            self.canvas.coords(item, canvas_w / 2, canvas_h / 2)
 
     def _on_table_row_double_click(self, event):
         """Mở popup CTkToplevel để chỉnh sửa đồng thời Loại chi phí và Số tiền khi double-click."""
@@ -595,9 +698,14 @@ class MainApp(customtkinter.CTk):
 
         # 2. Cập nhật trên bảng Treeview
         # Định dạng hiển thị doc_key
+        file_path = data_item.get("file_path", "")
+        ext = os.path.splitext(file_path)[1].lower()
         key_val = data_item.get("document_key", "")
         doc_key_display = ""
-        if key_val:
+        
+        if ext in (".jpg", ".jpeg", ".png"):
+            doc_key_display = "Ảnh"
+        elif key_val:
             if key_val.startswith("LO_"):
                 doc_key_display = f"Lô: {key_val[3:]}"
             elif key_val.startswith("HD_"):
@@ -608,8 +716,8 @@ class MainApp(customtkinter.CTk):
                 doc_key_display = key_val
 
         self.tree.item(item_id, values=(
-            data_item["container_id"], 
             doc_key_display,
+            data_item["container_id"], 
             new_fee, 
             f"{new_amount:,}"
         ))
@@ -637,9 +745,14 @@ class MainApp(customtkinter.CTk):
             data_list = []
             for idx, res in enumerate(self.scanned_results, 1):
                 # Định dạng hiển thị doc_key
+                file_path = res.get("file_path", "")
+                ext = os.path.splitext(file_path)[1].lower()
                 key_val = res.get("document_key", "")
                 doc_key_display = ""
-                if key_val:
+                
+                if ext in (".jpg", ".jpeg", ".png"):
+                    doc_key_display = "Ảnh"
+                elif key_val:
                     if key_val.startswith("LO_"):
                         doc_key_display = f"Lô: {key_val[3:]}"
                     elif key_val.startswith("HD_"):
@@ -651,8 +764,8 @@ class MainApp(customtkinter.CTk):
 
                 data_list.append({
                     "STT": idx,
-                    "Số Container": res["container_id"],
                     "Số HĐ / Mã lô": doc_key_display,
+                    "Số Container": res["container_id"],
                     "Loại chi phí": res["fee_type"],
                     "Số tiền (VNĐ)": res["amount"]
                 })
